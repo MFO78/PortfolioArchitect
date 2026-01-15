@@ -74,7 +74,7 @@
             filter: 'none',
             vignetteStrength: 0,
             cornerRadius: 4, 
-            imageScale: 100, // Default 100% scale
+            imageScale: 100, // Now represents Frame Size (50-150%)
             output: {
                 embedImages: false,
                 maxDimension: 1200,
@@ -236,18 +236,25 @@
                 const objectFit = config.gridFit ? 'contain' : 'cover';
                 const itemBg = config.gridFit ? 'color-mix(in srgb, var(--accent) 15%, var(--card-bg))' : 'var(--card-bg)';
                 const radius = `${config.cornerRadius}px`;
+                
+                // Calculate Dynamic Dimensions based on Scale
+                const baseScale = config.imageScale / 100;
+                const baseSize = Math.floor(300 * baseScale); // Approx 150px to 450px base column width
 
                 if (config.layout === 'masonry') {
+                    // Dynamic Column Breaks for Masonry
                     layoutCss = `
                         .gallery-container { column-count: 1; column-gap: 1.5rem; }
-                        @media (min-width: 640px) { .gallery-container { column-count: 2; } }
-                        @media (min-width: 1024px) { .gallery-container { column-count: 3; } }
+                        @media (min-width: ${Math.floor(baseSize * 2)}px) { .gallery-container { column-count: 2; } }
+                        @media (min-width: ${Math.floor(baseSize * 3)}px) { .gallery-container { column-count: 3; } }
+                        @media (min-width: ${Math.floor(baseSize * 4)}px) { .gallery-container { column-count: 4; } }
+                        @media (min-width: ${Math.floor(baseSize * 5)}px) { .gallery-container { column-count: 5; } }
                         .gallery-item { break-inside: avoid; margin-bottom: 1.5rem; overflow: hidden; border-radius: ${radius}; }
                         .gallery-item img { display: block; width: 100%; height: auto; }
                     `;
                 } else if (config.layout === 'single') {
                     layoutCss = `
-                        .gallery-container { display: flex; flex-direction: column; gap: 4rem; max-width: 800px; margin: 0 auto; }
+                        .gallery-container { display: flex; flex-direction: column; gap: 4rem; max-width: ${Math.min(800 * baseScale, 1400)}px; margin: 0 auto; }
                         .gallery-item { width: 100%; box-shadow: none; border: none; background: transparent; overflow: hidden; border-radius: ${radius}; }
                         .gallery-item img { width: 100%; height: auto; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
                         .gallery-item:hover { transform: none; box-shadow: none; }
@@ -258,20 +265,21 @@
                         .gallery-container::-webkit-scrollbar { height: 8px; }
                         .gallery-container::-webkit-scrollbar-track { background: var(--card-bg); border-radius: 4px; }
                         .gallery-container::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 4px; }
-                        .gallery-item { flex: 0 0 85vw; height: 60vh; scroll-snap-align: center; border-radius: ${radius}; overflow: hidden; background-color: ${itemBg}; display: flex; align-items: center; justify-content: center; }
-                        @media(min-width: 768px) { .gallery-item { flex: 0 0 60vw; height: 70vh; } }
+                        .gallery-item { flex: 0 0 ${Math.min(85 * baseScale, 90)}vw; height: ${Math.min(60 * baseScale, 80)}vh; scroll-snap-align: center; border-radius: ${radius}; overflow: hidden; background-color: ${itemBg}; display: flex; align-items: center; justify-content: center; }
+                        @media(min-width: 768px) { .gallery-item { flex: 0 0 ${Math.min(60 * baseScale, 80)}vw; height: ${Math.min(70 * baseScale, 90)}vh; } }
                         .gallery-item img { width: 100%; height: 100%; object-fit: ${objectFit}; }
                     `;
                 } else if (config.layout === 'dual') {
                     layoutCss = `
-                        .gallery-container { display: grid; grid-template-columns: 1fr; gap: 2rem; }
+                        .gallery-container { display: grid; grid-template-columns: 1fr; gap: 2rem; max-width: ${Math.min(1400 * baseScale, 1800)}px; margin: 0 auto; }
                         @media(min-width: 768px) { .gallery-container { grid-template-columns: 1fr 1fr; } }
                         .gallery-item { overflow: hidden; border-radius: ${radius}; background-color: ${itemBg}; }
                         .gallery-item img { width: 100%; height: auto; display: block; }
                     `;
                 } else {
+                    // Standard Grid: Adjust minmax value
                     layoutCss = `
-                        .gallery-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; }
+                        .gallery-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(${baseSize}px, 1fr)); gap: 1.5rem; }
                         .gallery-item { aspect-ratio: 1 / 1; overflow: hidden; background-color: ${itemBg}; display: flex; align-items: center; justify-content: center; border-radius: ${radius}; }
                         .gallery-item img { width: 100%; height: 100%; object-fit: ${objectFit}; }
                     `;
@@ -327,11 +335,7 @@
         
         .gallery-item { position: relative; transition: transform 0.3s ease, box-shadow 0.3s ease; cursor: pointer; }
         .gallery-item:hover { transform: translateY(-4px); box-shadow: 0 10px 20px -5px rgba(0,0,0,0.1); }
-        .gallery-item img { 
-            filter: ${filterCss}; 
-            transition: filter 0.3s ease, transform 0.3s ease;
-            transform: scale(${config.imageScale / 100}); 
-        }
+        .gallery-item img { filter: ${filterCss}; transition: filter 0.3s ease; }
         .gallery-item:hover img { filter: none; }
 
         /* Lightbox */
@@ -620,6 +624,14 @@
                                                     ))}
                                                     <input type="color" value={config.accentColor} onChange={e => setConfig(p => ({...p, accentColor: e.target.value}))} className="w-6 h-6 rounded-full p-0 border-0 cursor-pointer"/>
                                                 </div>
+                                                
+                                                {/* MOVED HERE */}
+                                                <div className="mt-4 pt-4 border-t border-slate-100">
+                                                    <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                                                        <input type="checkbox" checked={config.dark_mode} onChange={e => setConfig(p => ({...p, dark_mode: e.target.checked}))} className="rounded border-slate-300"/>
+                                                        Enable Dark Mode
+                                                    </label>
+                                                </div>
                                             </div>
                                         </div>
                                     </section>
@@ -674,7 +686,7 @@
                                                 </div>
                                                 <div className="md:col-span-2">
                                                     <div className="flex justify-between items-center mb-2">
-                                                        <label className="text-xs font-semibold text-slate-500">Image Scale (Zoom)</label>
+                                                        <label className="text-xs font-semibold text-slate-500">Frame Size (Density)</label>
                                                         <span className="text-xs text-slate-400 font-mono">{config.imageScale}%</span>
                                                     </div>
                                                     <input 
@@ -721,14 +733,6 @@
                                                 </div>
                                             </label>
                                         </div>
-                                    </section>
-
-                                    {/* Global Settings */}
-                                    <section className="flex items-center gap-4">
-                                        <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
-                                            <input type="checkbox" checked={config.dark_mode} onChange={e => setConfig(p => ({...p, dark_mode: e.target.checked}))} className="rounded border-slate-300"/>
-                                            Enable Dark Mode
-                                        </label>
                                     </section>
                                 </React.Fragment>
                             )}
