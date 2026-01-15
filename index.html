@@ -73,7 +73,8 @@
             font: 'sans',
             filter: 'none',
             vignetteStrength: 0,
-            cornerRadius: 4, // Default radius
+            cornerRadius: 4, 
+            imageScale: 100, // Default 100% scale
             output: {
                 embedImages: false,
                 maxDimension: 1200,
@@ -241,14 +242,14 @@
                         .gallery-container { column-count: 1; column-gap: 1.5rem; }
                         @media (min-width: 640px) { .gallery-container { column-count: 2; } }
                         @media (min-width: 1024px) { .gallery-container { column-count: 3; } }
-                        .gallery-item { break-inside: avoid; margin-bottom: 1.5rem; }
-                        .gallery-item img { display: block; width: 100%; height: auto; border-radius: ${radius}; }
+                        .gallery-item { break-inside: avoid; margin-bottom: 1.5rem; overflow: hidden; border-radius: ${radius}; }
+                        .gallery-item img { display: block; width: 100%; height: auto; }
                     `;
                 } else if (config.layout === 'single') {
                     layoutCss = `
                         .gallery-container { display: flex; flex-direction: column; gap: 4rem; max-width: 800px; margin: 0 auto; }
-                        .gallery-item { width: 100%; box-shadow: none; border: none; background: transparent; }
-                        .gallery-item img { width: 100%; height: auto; border-radius: ${radius}; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+                        .gallery-item { width: 100%; box-shadow: none; border: none; background: transparent; overflow: hidden; border-radius: ${radius}; }
+                        .gallery-item img { width: 100%; height: auto; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
                         .gallery-item:hover { transform: none; box-shadow: none; }
                     `;
                 } else if (config.layout === 'filmstrip') {
@@ -326,7 +327,11 @@
         
         .gallery-item { position: relative; transition: transform 0.3s ease, box-shadow 0.3s ease; cursor: pointer; }
         .gallery-item:hover { transform: translateY(-4px); box-shadow: 0 10px 20px -5px rgba(0,0,0,0.1); }
-        .gallery-item img { filter: ${filterCss}; transition: filter 0.3s ease; }
+        .gallery-item img { 
+            filter: ${filterCss}; 
+            transition: filter 0.3s ease, transform 0.3s ease;
+            transform: scale(${config.imageScale / 100}); 
+        }
         .gallery-item:hover img { filter: none; }
 
         /* Lightbox */
@@ -663,6 +668,21 @@
                                                         min="0" 
                                                         max="24" 
                                                         value={config.cornerRadius} 
+                                                        onChange={handleConfigChange}
+                                                        className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                                    />
+                                                </div>
+                                                <div className="md:col-span-2">
+                                                    <div className="flex justify-between items-center mb-2">
+                                                        <label className="text-xs font-semibold text-slate-500">Image Scale (Zoom)</label>
+                                                        <span className="text-xs text-slate-400 font-mono">{config.imageScale}%</span>
+                                                    </div>
+                                                    <input 
+                                                        type="range" 
+                                                        name="imageScale" 
+                                                        min="50" 
+                                                        max="150" 
+                                                        value={config.imageScale} 
                                                         onChange={handleConfigChange}
                                                         className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                                                     />
