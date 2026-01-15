@@ -1,283 +1,289 @@
-import React, { useState, useRef } from 'react';
-import { Upload, Download, Folder, Image as ImageIcon, Settings, Palette, Layout, User, Mail, Sliders, FileArchive, Zap, Monitor, Smartphone, Grid, List, Layers, Linkedin, Github, Twitter, Columns, Film, HelpCircle, CheckCircle2, ArrowRight } from 'lucide-react';
-
-// --- Types ---
-type LayoutType = 'masonry' | 'grid' | 'single' | 'filmstrip' | 'dual';
-type FontType = 'sans' | 'serif' | 'mono' | 'geometric' | 'slab' | 'humanist' | 'editorial' | 'system' | 'wide' | 'oldstyle' | 'screenplay';
-type FilterType = 'none' | 'grayscale' | 'sepia' | 'vivid' | 'matte' | 'vintage' | 'cinematic';
-
-interface PortfolioConfig {
-  // Identity
-  title: string;
-  subtitle: string;
-  email: string;
-  website: string;
-  linkedin: string;
-  github: string;
-  twitter: string;
-  bio: string;
-  
-  // Visuals
-  accentColor: string;
-  dark_mode: boolean;
-  layout: LayoutType;
-  gridFit: boolean;
-  font: FontType;
-  
-  // Post-Processing
-  filter: FilterType;
-  vignette: boolean;
-
-  // Output
-  output: {
-    embedImages: boolean; // Single File Mode
-    maxDimension: number;
-    quality: number;
-  };
-}
-
-interface ImageFile {
-  name: string;
-  path: string;
-  size: number;
-  originalFile: File;
-}
-
-// --- Default Configuration (Generic / Lorem Ipsum) ---
-const DEFAULT_CONFIG: PortfolioConfig = {
-  title: "Your Name",
-  subtitle: "Creative Portfolio",
-  email: "hello@yourwebsite.com",
-  website: "www.yourwebsite.com",
-  linkedin: "",
-  github: "",
-  twitter: "",
-  bio: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
-  accentColor: "#2563eb",
-  dark_mode: false,
-  layout: 'masonry',
-  gridFit: false,
-  font: 'sans',
-  filter: 'none',
-  vignette: false,
-  output: {
-    embedImages: false,
-    maxDimension: 1200,
-    quality: 0.75,
-  },
-};
-
-export default function App() {
-  const [config, setConfig] = useState<PortfolioConfig>(DEFAULT_CONFIG);
-  const [logo, setLogo] = useState<string | null>(null);
-  const [files, setFiles] = useState<ImageFile[]>([]);
-  const [activeTab, setActiveTab] = useState<'config' | 'files'>('config');
-  const [showWelcome, setShowWelcome] = useState(true);
-  const [status, setStatus] = useState<{ state: 'idle' | 'processing', message: string, progress: number }>({ state: 'idle', message: '', progress: 0 });
-
-  const dirInputRef = useRef<HTMLInputElement>(null);
-
-  // --- Handlers ---
-  const handleConfigChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value, type } = e.target;
-    if (type === 'checkbox') {
-        setConfig(prev => ({ ...prev, [name]: (e.target as HTMLInputElement).checked }));
-    } else {
-        setConfig(prev => ({ ...prev, [name]: value }));
-    }
-  };
-
-  const updateOutput = (key: keyof PortfolioConfig['output'], value: any) => {
-    setConfig(prev => ({ ...prev, output: { ...prev.output, [key]: value } }));
-  };
-
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => setLogo(reader.result as string);
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fileList = e.target.files;
-    if (!fileList) return;
-
-    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'];
-    const foundImages: ImageFile[] = [];
-
-    Array.from(fileList).forEach(file => {
-      if (imageExtensions.some(ext => file.name.toLowerCase().endsWith(ext))) {
-        foundImages.push({
-          name: file.name,
-          path: file.webkitRelativePath || file.name,
-          size: file.size,
-          originalFile: file
-        });
-      }
-    });
-
-    setFiles(foundImages);
-    if (foundImages.length > 0) setActiveTab('files');
-  };
-
-  // --- Image Processing Engine ---
-  const compressImage = (file: File, maxDim: number, quality: number): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let width = img.width;
-          let height = img.height;
-
-          // Resize Logic
-          if (width > height) {
-            if (width > maxDim) { height *= maxDim / width; width = maxDim; }
-          } else {
-            if (height > maxDim) { width *= maxDim / height; height = maxDim; }
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) { reject('Canvas error'); return; }
-          
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', quality));
-        };
-        img.onerror = reject;
-        img.src = event.target?.result as string;
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
-  // --- The Generator Core ---
-  const generateHTML = async () => {
-    setStatus({ state: 'processing', message: 'Initializing...', progress: 0 });
-
-    // 1. Process Images
-    const processedFiles: { src: string, name: string }[] = [];
-    if (config.output.embedImages) {
-        for (let i = 0; i < files.length; i++) {
-            setStatus({ state: 'processing', message: `Compressing ${i + 1}/${files.length}`, progress: Math.round(((i + 1) / files.length) * 100) });
-            try {
-                const base64 = await compressImage(files[i].originalFile, config.output.maxDimension, config.output.quality);
-                processedFiles.push({ src: base64, name: files[i].name });
-            } catch (e) {
-                processedFiles.push({ src: `./${files[i].name}`, name: files[i].name });
-            }
-        }
-    } else {
-        files.forEach(f => processedFiles.push({ src: `./${f.name}`, name: f.name }));
-    }
-
-    setStatus({ state: 'processing', message: 'Building Layout...', progress: 100 });
-
-    // 2. CSS Construction
-    let fontStack = '"Inter", sans-serif';
-    switch (config.font) {
-        case 'serif': fontStack = '"Merriweather", "Georgia", serif'; break;
-        case 'editorial': fontStack = '"Playfair Display", "Didot", serif'; break;
-        case 'humanist': fontStack = '"Lato", "Open Sans", sans-serif'; break;
-        case 'mono': fontStack = '"Inconsolata", "Courier New", monospace'; break;
-        case 'geometric': fontStack = '"Century Gothic", "Futura", sans-serif'; break;
-        case 'slab': fontStack = '"Rockwell", "Roboto Slab", serif'; break;
-        case 'system': fontStack = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'; break;
-        case 'wide': fontStack = '"Verdana", "Geneva", sans-serif'; break;
-        case 'oldstyle': fontStack = '"Garamond", "Baskerville", "Times New Roman", serif'; break;
-        case 'screenplay': fontStack = '"Courier Prime", "Courier", monospace'; break;
-    }
-
-    // Filter CSS
-    const filters: Record<FilterType, string> = {
-        none: '',
-        grayscale: 'grayscale(100%)',
-        sepia: 'sepia(80%)',
-        vivid: 'saturate(150%)',
-        matte: 'brightness(110%) contrast(90%) saturate(90%)',
-        vintage: 'sepia(40%) saturate(140%) hue-rotate(-20deg)',
-        cinematic: 'contrast(110%) saturate(120%) hue-rotate(-10deg)',
-    };
-    const filterCss = filters[config.filter];
-    const vignetteCss = config.vignette ? `
-        .gallery-item::after {
-            content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: radial-gradient(circle, transparent 60%, rgba(0,0,0,0.4) 100%);
-            pointer-events: none;
-        }
-    ` : '';
-
-    // Layout CSS
-    let layoutCss = '';
-    const objectFit = config.gridFit ? 'contain' : 'cover';
-    // Use a stronger mix for grid backgrounds so they are visible
-    const itemBg = config.gridFit ? 'color-mix(in srgb, var(--accent) 15%, var(--card-bg))' : 'var(--card-bg)';
-
-    if (config.layout === 'masonry') {
-      layoutCss = `
-        .gallery-container { column-count: 1; column-gap: 1.5rem; }
-        @media (min-width: 640px) { .gallery-container { column-count: 2; } }
-        @media (min-width: 1024px) { .gallery-container { column-count: 3; } }
-        .gallery-item { break-inside: avoid; margin-bottom: 1.5rem; }
-        .gallery-item img { display: block; width: 100%; height: auto; border-radius: 4px; }
-      `;
-    } else if (config.layout === 'single') {
-       layoutCss = `
-        .gallery-container { display: flex; flex-direction: column; gap: 4rem; max-width: 800px; margin: 0 auto; }
-        .gallery-item { width: 100%; box-shadow: none; border: none; background: transparent; }
-        .gallery-item img { width: 100%; height: auto; border-radius: 4px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-        .gallery-item:hover { transform: none; box-shadow: none; }
-      `;
-    } else if (config.layout === 'filmstrip') {
-       layoutCss = `
-        .gallery-container { display: flex; overflow-x: auto; gap: 1.5rem; padding-bottom: 2rem; scroll-snap-type: x mandatory; align-items: center; }
-        .gallery-container::-webkit-scrollbar { height: 8px; }
-        .gallery-container::-webkit-scrollbar-track { background: var(--card-bg); border-radius: 4px; }
-        .gallery-container::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 4px; }
-        .gallery-item { flex: 0 0 85vw; height: 60vh; scroll-snap-align: center; border-radius: 8px; overflow: hidden; background-color: ${itemBg}; display: flex; align-items: center; justify-content: center; }
-        @media(min-width: 768px) { .gallery-item { flex: 0 0 60vw; height: 70vh; } }
-        .gallery-item img { width: 100%; height: 100%; object-fit: ${objectFit}; }
-       `;
-    } else if (config.layout === 'dual') {
-       layoutCss = `
-        .gallery-container { display: grid; grid-template-columns: 1fr; gap: 2rem; }
-        @media(min-width: 768px) { .gallery-container { grid-template-columns: 1fr 1fr; } }
-        .gallery-item { overflow: hidden; border-radius: 4px; background-color: ${itemBg}; }
-        .gallery-item img { width: 100%; height: auto; display: block; }
-       `;
-    } else { // Grid
-      layoutCss = `
-        .gallery-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; }
-        .gallery-item { aspect-ratio: 1 / 1; overflow: hidden; background-color: ${itemBg}; display: flex; align-items: center; justify-content: center; }
-        .gallery-item img { width: 100%; height: 100%; object-fit: ${objectFit}; border-radius: ${config.gridFit ? '0' : '4px'}; }
-      `;
-    }
-
-    // Dynamic Background Logic (color-mix)
-    // Increased strength to make it visible
-    const baseBg = config.dark_mode ? '#0f172a' : '#ffffff';
-    const mixStrength = config.dark_mode ? '10%' : '5%'; 
-    const bgCSSValue = `color-mix(in srgb, ${config.accentColor} ${mixStrength}, ${baseBg})`;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portfolio Architect - Standalone</title>
     
-    const textColor = config.dark_mode ? '#f3f4f6' : '#1f2937';
-    const cardBg = config.dark_mode ? '#1e293b' : '#f9fafb';
-    const borderColor = config.dark_mode ? '#334155' : '#e2e8f0';
+    <!-- Core Libraries (React + Tailwind) -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        /* Custom scrollbar for filmstrip preview */
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+    <div id="root"></div>
 
-    // SVG Icons Strings
-    const icons = {
-        email: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>`,
-        web: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><path d="M2 12h20"/></svg>`,
-        linkedin: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/><rect width="4" height="12" x="2" y="9"/><circle cx="4" cy="4" r="2"/></svg>`,
-        github: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>`,
-        twitter: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"/></svg>`
-    };
+    <script type="text/babel">
+        const { useState, useRef, useEffect } = React;
 
-    // 3. HTML Assembly
-    const htmlContent = `<!DOCTYPE html>
+        // --- Icon Component System (Inlined for Portability) ---
+        const Icons = {
+            Layout: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>,
+            Settings: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>,
+            Folder: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 2H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>,
+            Download: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>,
+            Upload: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>,
+            User: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
+            Mail: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>,
+            Palette: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>,
+            Sliders: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="2" x2="6" y1="14" y2="14"/><line x1="10" x2="14" y1="8" y2="8"/><line x1="18" x2="22" y1="16" y2="16"/></svg>,
+            FileArchive: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 22V4c0-.5.2-1 .6-1.4C5 2.2 5.5 2 6 2h8.5L20 7.5V20c0 .5-.2 1-.6 1.4-.4.4-.9.6-1.4.6h-2"/><path d="M14 2v6h6"/><path d="M10 20v-1a2 2 0 1 1 4 0v1"/><path d="M4 8h12"/><path d="M4 16h12"/></svg>,
+            HelpCircle: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>,
+            Zap: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+            ArrowRight: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>,
+            Monitor: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>,
+            Linkedin: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/><rect width="4" height="12" x="2" y="9"/><circle cx="4" cy="4" r="2"/></svg>,
+            Github: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>,
+            Twitter: (props) => <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"/></svg>
+        };
+
+        const Icon = ({ name, size = 18, className = "" }) => {
+            const Component = Icons[name];
+            return Component ? <Component width={size} height={size} className={className} /> : null;
+        };
+
+        // --- Default Configuration (Generic) ---
+        const DEFAULT_CONFIG = {
+            title: "Your Name",
+            subtitle: "Creative Portfolio",
+            email: "hello@yourwebsite.com",
+            website: "www.yourwebsite.com",
+            linkedin: "",
+            github: "",
+            twitter: "",
+            bio: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
+            accentColor: "#2563eb",
+            dark_mode: false,
+            layout: 'masonry',
+            gridFit: false,
+            font: 'sans',
+            filter: 'none',
+            vignette: false,
+            output: {
+                embedImages: false,
+                maxDimension: 1200,
+                quality: 0.75,
+            },
+        };
+
+        function App() {
+            const [config, setConfig] = useState(DEFAULT_CONFIG);
+            const [logo, setLogo] = useState(null);
+            const [files, setFiles] = useState([]);
+            const [activeTab, setActiveTab] = useState('config');
+            const [showWelcome, setShowWelcome] = useState(true);
+            const [status, setStatus] = useState({ state: 'idle', message: '', progress: 0 });
+
+            const dirInputRef = useRef(null);
+
+            // --- Handlers ---
+            const handleConfigChange = (e) => {
+                const { name, value, type, checked } = e.target;
+                if (type === 'checkbox') {
+                    setConfig(prev => ({ ...prev, [name]: checked }));
+                } else {
+                    setConfig(prev => ({ ...prev, [name]: value }));
+                }
+            };
+
+            const updateOutput = (key, value) => {
+                setConfig(prev => ({ ...prev, output: { ...prev.output, [key]: value } }));
+            };
+
+            const handleLogoUpload = (e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onloadend = () => setLogo(reader.result);
+                    reader.readAsDataURL(file);
+                }
+            };
+
+            const handleFolderSelect = (e) => {
+                const fileList = e.target.files;
+                if (!fileList) return;
+
+                const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'];
+                const foundImages = [];
+
+                Array.from(fileList).forEach(file => {
+                    if (imageExtensions.some(ext => file.name.toLowerCase().endsWith(ext))) {
+                        foundImages.push({
+                            name: file.name,
+                            path: file.webkitRelativePath || file.name,
+                            size: file.size,
+                            originalFile: file
+                        });
+                    }
+                });
+
+                setFiles(foundImages);
+                if (foundImages.length > 0) setActiveTab('files');
+            };
+
+            // --- Image Processing Engine ---
+            const compressImage = (file, maxDim, quality) => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            let width = img.width;
+                            let height = img.height;
+
+                            // Resize Logic
+                            if (width > height) {
+                                if (width > maxDim) { height *= maxDim / width; width = maxDim; }
+                            } else {
+                                if (height > maxDim) { width *= maxDim / height; height = maxDim; }
+                            }
+
+                            canvas.width = width;
+                            canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            if (!ctx) { reject('Canvas error'); return; }
+                            
+                            ctx.drawImage(img, 0, 0, width, height);
+                            resolve(canvas.toDataURL('image/jpeg', quality));
+                        };
+                        img.onerror = reject;
+                        img.src = event.target?.result;
+                    };
+                    reader.readAsDataURL(file);
+                });
+            };
+
+            // --- The Generator Core ---
+            const generateHTML = async () => {
+                setStatus({ state: 'processing', message: 'Initializing...', progress: 0 });
+
+                // 1. Process Images
+                const processedFiles = [];
+                if (config.output.embedImages) {
+                    for (let i = 0; i < files.length; i++) {
+                        setStatus({ state: 'processing', message: `Compressing ${i + 1}/${files.length}`, progress: Math.round(((i + 1) / files.length) * 100) });
+                        try {
+                            const base64 = await compressImage(files[i].originalFile, config.output.maxDimension, config.output.quality);
+                            processedFiles.push({ src: base64, name: files[i].name });
+                        } catch (e) {
+                            processedFiles.push({ src: `./${files[i].name}`, name: files[i].name });
+                        }
+                    }
+                } else {
+                    files.forEach(f => processedFiles.push({ src: `./${f.name}`, name: f.name }));
+                }
+
+                setStatus({ state: 'processing', message: 'Building Layout...', progress: 100 });
+
+                // 2. CSS Construction
+                let fontStack = '"Inter", sans-serif';
+                switch (config.font) {
+                    case 'serif': fontStack = '"Merriweather", "Georgia", serif'; break;
+                    case 'editorial': fontStack = '"Playfair Display", "Didot", serif'; break;
+                    case 'humanist': fontStack = '"Lato", "Open Sans", sans-serif'; break;
+                    case 'mono': fontStack = '"Inconsolata", "Courier New", monospace'; break;
+                    case 'geometric': fontStack = '"Century Gothic", "Futura", sans-serif'; break;
+                    case 'slab': fontStack = '"Rockwell", "Roboto Slab", serif'; break;
+                    case 'system': fontStack = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'; break;
+                    case 'wide': fontStack = '"Verdana", "Geneva", sans-serif'; break;
+                    case 'oldstyle': fontStack = '"Garamond", "Baskerville", "Times New Roman", serif'; break;
+                    case 'screenplay': fontStack = '"Courier Prime", "Courier", monospace'; break;
+                }
+
+                // Filter CSS
+                const filters = {
+                    none: '',
+                    grayscale: 'grayscale(100%)',
+                    sepia: 'sepia(80%)',
+                    vivid: 'saturate(150%)',
+                    matte: 'brightness(110%) contrast(90%) saturate(90%)',
+                    vintage: 'sepia(40%) saturate(140%) hue-rotate(-20deg)',
+                    cinematic: 'contrast(110%) saturate(120%) hue-rotate(-10deg)',
+                };
+                const filterCss = filters[config.filter];
+                const vignetteCss = config.vignette ? `
+                    .gallery-item::after {
+                        content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+                        background: radial-gradient(circle, transparent 60%, rgba(0,0,0,0.4) 100%);
+                        pointer-events: none;
+                    }
+                ` : '';
+
+                // Layout CSS
+                let layoutCss = '';
+                const objectFit = config.gridFit ? 'contain' : 'cover';
+                const itemBg = config.gridFit ? 'color-mix(in srgb, var(--accent) 15%, var(--card-bg))' : 'var(--card-bg)';
+
+                if (config.layout === 'masonry') {
+                    layoutCss = `
+                        .gallery-container { column-count: 1; column-gap: 1.5rem; }
+                        @media (min-width: 640px) { .gallery-container { column-count: 2; } }
+                        @media (min-width: 1024px) { .gallery-container { column-count: 3; } }
+                        .gallery-item { break-inside: avoid; margin-bottom: 1.5rem; }
+                        .gallery-item img { display: block; width: 100%; height: auto; border-radius: 4px; }
+                    `;
+                } else if (config.layout === 'single') {
+                    layoutCss = `
+                        .gallery-container { display: flex; flex-direction: column; gap: 4rem; max-width: 800px; margin: 0 auto; }
+                        .gallery-item { width: 100%; box-shadow: none; border: none; background: transparent; }
+                        .gallery-item img { width: 100%; height: auto; border-radius: 4px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+                        .gallery-item:hover { transform: none; box-shadow: none; }
+                    `;
+                } else if (config.layout === 'filmstrip') {
+                    layoutCss = `
+                        .gallery-container { display: flex; overflow-x: auto; gap: 1.5rem; padding-bottom: 2rem; scroll-snap-type: x mandatory; align-items: center; }
+                        .gallery-container::-webkit-scrollbar { height: 8px; }
+                        .gallery-container::-webkit-scrollbar-track { background: var(--card-bg); border-radius: 4px; }
+                        .gallery-container::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 4px; }
+                        .gallery-item { flex: 0 0 85vw; height: 60vh; scroll-snap-align: center; border-radius: 8px; overflow: hidden; background-color: ${itemBg}; display: flex; align-items: center; justify-content: center; }
+                        @media(min-width: 768px) { .gallery-item { flex: 0 0 60vw; height: 70vh; } }
+                        .gallery-item img { width: 100%; height: 100%; object-fit: ${objectFit}; }
+                    `;
+                } else if (config.layout === 'dual') {
+                    layoutCss = `
+                        .gallery-container { display: grid; grid-template-columns: 1fr; gap: 2rem; }
+                        @media(min-width: 768px) { .gallery-container { grid-template-columns: 1fr 1fr; } }
+                        .gallery-item { overflow: hidden; border-radius: 4px; background-color: ${itemBg}; }
+                        .gallery-item img { width: 100%; height: auto; display: block; }
+                    `;
+                } else {
+                    layoutCss = `
+                        .gallery-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; }
+                        .gallery-item { aspect-ratio: 1 / 1; overflow: hidden; background-color: ${itemBg}; display: flex; align-items: center; justify-content: center; }
+                        .gallery-item img { width: 100%; height: 100%; object-fit: ${objectFit}; border-radius: ${config.gridFit ? '0' : '4px'}; }
+                    `;
+                }
+
+                const baseBg = config.dark_mode ? '#0f172a' : '#ffffff';
+                const mixStrength = config.dark_mode ? '10%' : '5%'; 
+                const bgCSSValue = `color-mix(in srgb, ${config.accentColor} ${mixStrength}, ${baseBg})`;
+                
+                const textColor = config.dark_mode ? '#f3f4f6' : '#1f2937';
+                const cardBg = config.dark_mode ? '#1e293b' : '#f9fafb';
+                const borderColor = config.dark_mode ? '#334155' : '#e2e8f0';
+
+                // SVG Icons Strings
+                const icons = {
+                    email: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>`,
+                    web: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><path d="M2 12h20"/></svg>`,
+                    linkedin: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/><rect width="4" height="12" x="2" y="9"/><circle cx="4" cy="4" r="2"/></svg>`,
+                    github: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>`,
+                    twitter: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"/></svg>`
+                };
+
+                const htmlContent = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -376,314 +382,318 @@ export default function App() {
                 container.scrollLeft += evt.deltaY;
             });
         }
-    </script>
+    <\/script>
 </body>
 </html>`;
 
-    // 4. Download
-    const blob = new window.Blob([htmlContent], { type: 'text/html' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = config.output.embedImages ? 'portfolio_bundle.html' : 'portfolio.html';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setStatus({ state: 'idle', message: '', progress: 0 });
-  };
+                const blob = new window.Blob([htmlContent], { type: 'text/html' });
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = config.output.embedImages ? 'portfolio_bundle.html' : 'portfolio.html';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                setStatus({ state: 'idle', message: '', progress: 0 });
+            };
 
-  return (
-    <div className="flex flex-col h-screen bg-slate-50 text-slate-900 font-sans">
-      
-      {/* Welcome Modal */}
-      {showWelcome && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-300">
-           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
-              {/* Header */}
-              <div className="bg-slate-50 p-6 border-b border-slate-100 text-center relative">
-                 <button onClick={() => setShowWelcome(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 transition-colors">
-                     <span className="sr-only">Close</span>
-                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                 </button>
-                 <div className="w-14 h-14 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
-                    <Zap size={28} />
-                 </div>
-                 <h2 className="text-xl font-bold text-slate-900">Welcome to Portfolio Architect</h2>
-                 <p className="text-slate-500 mt-2 text-sm">Create a professional local portfolio in 3 steps.</p>
-              </div>
-              {/* Steps */}
-              <div className="p-6 space-y-6">
-                 <div className="flex gap-4 group">
-                    <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold shrink-0 shadow-sm group-hover:scale-110 transition-transform">1</div>
-                    <div>
-                       <h3 className="font-semibold text-slate-900 text-sm">Configure Identity</h3>
-                       <p className="text-xs text-slate-500 mt-1">Set your name, bio, and visual preferences in the Configuration tab. We've added placeholders to get you started.</p>
-                    </div>
-                 </div>
-                 <div className="flex gap-4 group">
-                    <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold shrink-0 shadow-sm group-hover:scale-110 transition-transform">2</div>
-                    <div>
-                       <h3 className="font-semibold text-slate-900 text-sm">Select Image Folder</h3>
-                       <p className="text-xs text-slate-500 mt-1">Go to 'Assets' and select the folder containing your images. We scan locally—nothing is uploaded.</p>
-                    </div>
-                 </div>
-                 <div className="flex gap-4 group">
-                    <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold shrink-0 shadow-sm group-hover:scale-110 transition-transform">3</div>
-                    <div>
-                       <h3 className="font-semibold text-slate-900 text-sm">Generate & Deploy</h3>
-                       <p className="text-xs text-slate-500 mt-1">Download the HTML file. <strong className="text-blue-700">Crucial:</strong> Save it inside the same folder as your images for links to work.</p>
-                    </div>
-                 </div>
-              </div>
-              {/* Footer */}
-              <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-center">
-                 <button onClick={() => setShowWelcome(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2.5 rounded-lg font-semibold text-sm shadow-md hover:shadow-lg transition-all flex items-center gap-2">
-                    Get Started <ArrowRight size={16}/>
-                 </button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
-        <div className="flex items-center gap-3">
-            <div className="bg-slate-900 text-white p-2 rounded-lg"><Layout size={20} /></div>
-            <div>
-                <h1 className="text-lg font-bold leading-tight">Portfolio Architect</h1>
-                <p className="text-xs text-slate-500 font-medium">v2.7 Pro</p>
-            </div>
-            <button onClick={() => setShowWelcome(true)} className="ml-2 text-slate-400 hover:text-blue-600 transition-colors" title="Show Guide">
-                <HelpCircle size={18} />
-            </button>
-        </div>
-        <button onClick={generateHTML} disabled={files.length === 0 || status.state === 'processing'}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-semibold transition-all ${files.length ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md' : 'bg-slate-100 text-slate-400'}`}>
-            {status.state === 'processing' ? <span className="flex gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> {status.progress}%</span> : <><Download size={18}/> Generate Portfolio</>}
-        </button>
-      </div>
-
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <div className="w-64 bg-white border-r border-slate-200 overflow-y-auto flex flex-col">
-            <div className="p-2 space-y-1">
-                <button onClick={() => setActiveTab('config')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'config' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50'}`}>
-                    <Settings size={18} /> Configuration
-                </button>
-                <button onClick={() => setActiveTab('files')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'files' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50'}`}>
-                    <Folder size={18} /> Assets {files.length > 0 && <span className="ml-auto bg-slate-200 px-1.5 rounded-full text-xs">{files.length}</span>}
-                </button>
-            </div>
-        </div>
-
-        {/* Main */}
-        <div className="flex-1 overflow-y-auto p-8 bg-slate-50/50">
-            <div className="max-w-4xl mx-auto space-y-6">
-                
-                {activeTab === 'config' && (
-                    <>
-                        {/* Identity */}
-                        <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2"><User size={14}/> Identity</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <input type="text" name="title" value={config.title} onChange={handleConfigChange} placeholder="Full Name" className="border rounded-md px-3 py-2 text-sm w-full"/>
-                                <input type="text" name="subtitle" value={config.subtitle} onChange={handleConfigChange} placeholder="Job Title" className="border rounded-md px-3 py-2 text-sm w-full"/>
-                                <textarea name="bio" value={config.bio} onChange={handleConfigChange} placeholder="Professional Bio" rows={2} className="border rounded-md px-3 py-2 text-sm w-full md:col-span-2 resize-none"/>
-                                
-                                <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
-                                    <div className="relative">
-                                        <Mail className="absolute left-2.5 top-2.5 text-slate-400" size={14}/>
-                                        <input type="email" name="email" value={config.email} onChange={handleConfigChange} placeholder="Email" className="border rounded-md pl-8 pr-3 py-2 text-xs w-full"/>
-                                    </div>
-                                    <div className="relative">
-                                        <Monitor className="absolute left-2.5 top-2.5 text-slate-400" size={14}/>
-                                        <input type="text" name="website" value={config.website} onChange={handleConfigChange} placeholder="Website URL" className="border rounded-md pl-8 pr-3 py-2 text-xs w-full"/>
-                                    </div>
-                                    <div className="relative">
-                                        <Linkedin className="absolute left-2.5 top-2.5 text-slate-400" size={14}/>
-                                        <input type="text" name="linkedin" value={config.linkedin} onChange={handleConfigChange} placeholder="LinkedIn URL" className="border rounded-md pl-8 pr-3 py-2 text-xs w-full"/>
-                                    </div>
-                                    <div className="relative">
-                                        <Github className="absolute left-2.5 top-2.5 text-slate-400" size={14}/>
-                                        <input type="text" name="github" value={config.github} onChange={handleConfigChange} placeholder="GitHub URL" className="border rounded-md pl-8 pr-3 py-2 text-xs w-full"/>
-                                    </div>
-                                    <div className="relative">
-                                        <Twitter className="absolute left-2.5 top-2.5 text-slate-400" size={14}/>
-                                        <input type="text" name="twitter" value={config.twitter} onChange={handleConfigChange} placeholder="X / Twitter URL" className="border rounded-md pl-8 pr-3 py-2 text-xs w-full"/>
-                                    </div>
-                                </div>
-
-                                <div className="md:col-span-2 flex items-center gap-4 border-t pt-4">
-                                    <label className="flex items-center gap-2 text-sm font-medium text-slate-600 cursor-pointer hover:text-slate-900">
-                                        <Upload size={16}/> {logo ? 'Change Logo' : 'Upload Logo'}
-                                        <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
-                                    </label>
-                                    {logo && <img src={logo} className="h-8 w-8 rounded object-cover border" alt="logo prev"/>}
-                                </div>
-                            </div>
-                        </section>
-
-                        {/* Design System */}
-                        <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6">
-                            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2"><Palette size={14}/> Design System</h3>
-                            
-                            {/* Layouts */}
-                            <div>
-                                <label className="text-xs font-semibold text-slate-500 mb-3 block">Gallery Structure</label>
-                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-                                    <button onClick={() => setConfig(p => ({...p, layout: 'masonry'}))} className={`p-3 rounded-lg border text-left hover:border-blue-400 transition-all ${config.layout === 'masonry' ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-slate-200'}`}>
-                                        <div className="flex gap-1 mb-2 opacity-50"><div className="w-1.5 h-4 bg-current rounded-sm"/><div className="w-1.5 h-6 bg-current rounded-sm mt-2"/><div className="w-1.5 h-3 bg-current rounded-sm"/></div>
-                                        <div className="text-xs font-semibold">Masonry</div>
-                                    </button>
-                                    <button onClick={() => setConfig(p => ({...p, layout: 'grid'}))} className={`p-3 rounded-lg border text-left hover:border-blue-400 transition-all ${config.layout === 'grid' ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-slate-200'}`}>
-                                        <div className="grid grid-cols-2 gap-1 mb-2 opacity-50 w-6"><div className="h-2.5 bg-current rounded-sm"/><div className="h-2.5 bg-current rounded-sm"/><div className="h-2.5 bg-current rounded-sm"/><div className="h-2.5 bg-current rounded-sm"/></div>
-                                        <div className="text-xs font-semibold">Grid</div>
-                                    </button>
-                                    <button onClick={() => setConfig(p => ({...p, layout: 'single'}))} className={`p-3 rounded-lg border text-left hover:border-blue-400 transition-all ${config.layout === 'single' ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-slate-200'}`}>
-                                        <div className="flex flex-col gap-1 mb-2 opacity-50 w-6"><div className="h-2.5 bg-current rounded-sm w-full"/><div className="h-2.5 bg-current rounded-sm w-full"/></div>
-                                        <div className="text-xs font-semibold">Journal</div>
-                                    </button>
-                                    <button onClick={() => setConfig(p => ({...p, layout: 'filmstrip'}))} className={`p-3 rounded-lg border text-left hover:border-blue-400 transition-all ${config.layout === 'filmstrip' ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-slate-200'}`}>
-                                        <div className="flex gap-1 mb-2 opacity-50 overflow-hidden w-6"><div className="h-5 w-4 bg-current rounded-sm flex-shrink-0"/><div className="h-5 w-4 bg-current rounded-sm flex-shrink-0"/></div>
-                                        <div className="text-xs font-semibold">Filmstrip</div>
-                                    </button>
-                                    <button onClick={() => setConfig(p => ({...p, layout: 'dual'}))} className={`p-3 rounded-lg border text-left hover:border-blue-400 transition-all ${config.layout === 'dual' ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-slate-200'}`}>
-                                        <div className="flex gap-1 mb-2 opacity-50 w-6"><div className="h-5 w-full bg-current rounded-sm"/><div className="h-5 w-full bg-current rounded-sm"/></div>
-                                        <div className="text-xs font-semibold">Dual</div>
-                                    </button>
-                                </div>
-                                {config.layout === 'grid' && (
-                                    <label className="mt-2 flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={config.gridFit} onChange={e => setConfig(p => ({...p, gridFit: e.target.checked}))}/> Fit images inside squares (pad with color)</label>
-                                )}
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {/* Typography */}
+            return (
+                <div className="flex flex-col h-screen bg-slate-50 text-slate-900 font-sans">
+                  
+                  {/* Welcome Modal */}
+                  {showWelcome && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+                       <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
+                          {/* Header */}
+                          <div className="bg-slate-50 p-6 border-b border-slate-100 text-center relative">
+                             <button onClick={() => setShowWelcome(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 transition-colors">
+                                 <span className="sr-only">Close</span>
+                                 <Icon name="ArrowRight" size={24} className="rotate-45" />
+                             </button>
+                             <div className="w-14 h-14 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
+                                <Icon name="Zap" size={28} />
+                             </div>
+                             <h2 className="text-xl font-bold text-slate-900">Welcome to Portfolio Architect</h2>
+                             <p className="text-slate-500 mt-2 text-sm">Create a professional local portfolio in 3 steps.</p>
+                          </div>
+                          {/* Steps */}
+                          <div className="p-6 space-y-6">
+                             <div className="flex gap-4 group">
+                                <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold shrink-0 shadow-sm group-hover:scale-110 transition-transform">1</div>
                                 <div>
-                                    <label className="text-xs font-semibold text-slate-500 mb-2 block">Typography</label>
-                                    <select name="font" value={config.font} onChange={handleConfigChange} className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm">
-                                        <option value="sans">Modern Sans (Inter)</option>
-                                        <option value="humanist">Humanist (Lato)</option>
-                                        <option value="geometric">Geometric (Futura)</option>
-                                        <option value="system">System UI (Apple/Segoe)</option>
-                                        <option value="wide">Wide Sans (Verdana)</option>
-                                        <option value="serif">Classic Serif (Georgia)</option>
-                                        <option value="editorial">Editorial (Playfair)</option>
-                                        <option value="oldstyle">Old Style (Garamond)</option>
-                                        <option value="slab">Slab Serif (Rockwell)</option>
-                                        <option value="mono">Code (Inconsolata)</option>
-                                        <option value="screenplay">Screenplay (Courier)</option>
-                                    </select>
+                                   <h3 className="font-semibold text-slate-900 text-sm">Configure Identity</h3>
+                                   <p className="text-xs text-slate-500 mt-1">Set your name, bio, and visual preferences in the Configuration tab. We've added placeholders to get you started.</p>
                                 </div>
-
-                                {/* Color Palette */}
+                             </div>
+                             <div className="flex gap-4 group">
+                                <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold shrink-0 shadow-sm group-hover:scale-110 transition-transform">2</div>
                                 <div>
-                                    <label className="text-xs font-semibold text-slate-500 mb-2 block">Accent Colour</label>
-                                    <div className="flex flex-wrap gap-2">
-                                        {['#2563eb', '#0f172a', '#dc2626', '#ea580c', '#16a34a', '#0891b2', '#7c3aed', '#db2777'].map(c => (
-                                            <button key={c} onClick={() => setConfig(p => ({...p, accentColor: c}))} className={`w-6 h-6 rounded-full border ${config.accentColor === c ? 'ring-2 ring-offset-2 ring-slate-400' : 'border-transparent'}`} style={{ backgroundColor: c }} />
-                                        ))}
-                                        <input type="color" value={config.accentColor} onChange={e => setConfig(p => ({...p, accentColor: e.target.value}))} className="w-6 h-6 rounded-full p-0 border-0 cursor-pointer"/>
-                                    </div>
+                                   <h3 className="font-semibold text-slate-900 text-sm">Select Image Folder</h3>
+                                   <p className="text-xs text-slate-500 mt-1">Go to 'Assets' and select the folder containing your images. We scan locally—nothing is uploaded.</p>
                                 </div>
-                            </div>
-                        </section>
+                             </div>
+                             <div className="flex gap-4 group">
+                                <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold shrink-0 shadow-sm group-hover:scale-110 transition-transform">3</div>
+                                <div>
+                                   <h3 className="font-semibold text-slate-900 text-sm">Generate & Deploy</h3>
+                                   <p className="text-xs text-slate-500 mt-1">Download the HTML file. <strong className="text-blue-700">Crucial:</strong> Save it inside the same folder as your images for links to work.</p>
+                                </div>
+                             </div>
+                          </div>
+                          {/* Footer */}
+                          <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-center">
+                             <button onClick={() => setShowWelcome(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2.5 rounded-lg font-semibold text-sm shadow-md hover:shadow-lg transition-all flex items-center gap-2">
+                                Get Started <Icon name="ArrowRight" size={16} />
+                             </button>
+                          </div>
+                       </div>
+                    </div>
+                  )}
 
-                        {/* Filters & Processing */}
-                        <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6">
-                            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2"><Sliders size={14}/> Post-Processing</h3>
+                  {/* Header */}
+                  <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+                    <div className="flex items-center gap-3">
+                        <div className="bg-slate-900 text-white p-2 rounded-lg"><Icon name="Layout" size={20} /></div>
+                        <div>
+                            <h1 className="text-lg font-bold leading-tight">Portfolio Architect</h1>
+                            <p className="text-xs text-slate-500 font-medium">v2.7 Pro (Standalone)</p>
+                        </div>
+                        <button onClick={() => setShowWelcome(true)} className="ml-2 text-slate-400 hover:text-blue-600 transition-colors" title="Show Guide">
+                            <Icon name="HelpCircle" size={18} />
+                        </button>
+                    </div>
+                    <button onClick={generateHTML} disabled={files.length === 0 || status.state === 'processing'}
+                        className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-semibold transition-all ${files.length ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md' : 'bg-slate-100 text-slate-400'}`}>
+                        {status.state === 'processing' ? <span className="flex gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> {status.progress}%</span> : <><Icon name="Download" size={18} /> Generate Portfolio</>}
+                    </button>
+                  </div>
+
+                  <div className="flex flex-1 overflow-hidden">
+                    {/* Sidebar */}
+                    <div className="w-64 bg-white border-r border-slate-200 overflow-y-auto flex flex-col">
+                        <div className="p-2 space-y-1">
+                            <button onClick={() => setActiveTab('config')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'config' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50'}`}>
+                                <Icon name="Settings" size={18} /> Configuration
+                            </button>
+                            <button onClick={() => setActiveTab('files')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'files' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50'}`}>
+                                <Icon name="Folder" size={18} /> Assets {files.length > 0 && <span className="ml-auto bg-slate-200 px-1.5 rounded-full text-xs">{files.length}</span>}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Main */}
+                    <div className="flex-1 overflow-y-auto p-8 bg-slate-50/50">
+                        <div className="max-w-4xl mx-auto space-y-6">
                             
-                            {/* Filter Presets */}
-                            <div>
-                                <label className="text-xs font-semibold text-slate-500 mb-3 block">Image Filters</label>
-                                <div className="flex gap-2 overflow-x-auto pb-2">
-                                    {(['none', 'grayscale', 'sepia', 'vivid', 'matte', 'vintage', 'cinematic'] as FilterType[]).map(f => (
-                                        <button key={f} onClick={() => setConfig(p => ({...p, filter: f}))} 
-                                            className={`px-3 py-1.5 rounded-full text-xs font-medium capitalize border transition-all ${config.filter === f ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
-                                            {f}
-                                        </button>
-                                    ))}
-                                </div>
-                                <label className="mt-3 flex items-center gap-2 text-xs text-slate-600 cursor-pointer w-fit">
-                                    <input type="checkbox" checked={config.vignette} onChange={e => setConfig(p => ({...p, vignette: e.target.checked}))} className="rounded border-slate-300"/>
-                                    Add Vignette Effect
-                                </label>
-                            </div>
-
-                            {/* Export Settings */}
-                            <div className="pt-4 border-t border-slate-100">
-                                <label className="flex items-start gap-3 p-3 rounded-lg border bg-slate-50 cursor-pointer">
-                                    <input type="checkbox" checked={config.output.embedImages} onChange={e => updateOutput('embedImages', e.target.checked)} className="mt-1"/>
-                                    <div>
-                                        <span className="text-sm font-bold text-slate-900 block flex items-center gap-2"><FileArchive size={14}/> Portable Mode (Embed Images)</span>
-                                        <span className="text-xs text-slate-500 block">Compresses images into the HTML file. Easier to share, but lower quality.</span>
-                                        
-                                        {config.output.embedImages && (
-                                            <div className="mt-3 flex gap-4">
-                                                <div className="flex-1">
-                                                    <span className="text-xs font-semibold block mb-1">Max Width</span>
-                                                    <select value={config.output.maxDimension} onChange={e => updateOutput('maxDimension', Number(e.target.value))} className="w-full text-xs border rounded px-2 py-1">
-                                                        <option value="800">800px (Email Safe)</option>
-                                                        <option value="1200">1200px (HD)</option>
-                                                        <option value="1920">1920px (Full HD)</option>
-                                                    </select>
+                            {activeTab === 'config' && (
+                                <React.Fragment>
+                                    {/* Identity */}
+                                    <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                                        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2"><Icon name="User" size={14} /> Identity</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <input type="text" name="title" value={config.title} onChange={handleConfigChange} placeholder="Full Name" className="border rounded-md px-3 py-2 text-sm w-full"/>
+                                            <input type="text" name="subtitle" value={config.subtitle} onChange={handleConfigChange} placeholder="Job Title" className="border rounded-md px-3 py-2 text-sm w-full"/>
+                                            <textarea name="bio" value={config.bio} onChange={handleConfigChange} placeholder="Professional Bio" rows={2} className="border rounded-md px-3 py-2 text-sm w-full md:col-span-2 resize-none"/>
+                                            
+                                            <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                                                <div className="relative">
+                                                    <span className="absolute left-2.5 top-2.5 text-slate-400"><Icon name="Mail" size={14} /></span>
+                                                    <input type="email" name="email" value={config.email} onChange={handleConfigChange} placeholder="Email" className="border rounded-md pl-8 pr-3 py-2 text-xs w-full"/>
                                                 </div>
-                                                <div className="flex-1">
-                                                    <span className="text-xs font-semibold block mb-1">Quality</span>
-                                                    <select value={config.output.quality} onChange={e => updateOutput('quality', Number(e.target.value))} className="w-full text-xs border rounded px-2 py-1">
-                                                        <option value="0.6">Low (60%)</option>
-                                                        <option value="0.8">High (80%)</option>
-                                                        <option value="1.0">Original (100%)</option>
-                                                    </select>
+                                                <div className="relative">
+                                                    <span className="absolute left-2.5 top-2.5 text-slate-400"><Icon name="Monitor" size={14} /></span>
+                                                    <input type="text" name="website" value={config.website} onChange={handleConfigChange} placeholder="Website URL" className="border rounded-md pl-8 pr-3 py-2 text-xs w-full"/>
+                                                </div>
+                                                <div className="relative">
+                                                    <span className="absolute left-2.5 top-2.5 text-slate-400"><Icon name="Linkedin" size={14} /></span>
+                                                    <input type="text" name="linkedin" value={config.linkedin} onChange={handleConfigChange} placeholder="LinkedIn URL" className="border rounded-md pl-8 pr-3 py-2 text-xs w-full"/>
+                                                </div>
+                                                <div className="relative">
+                                                    <span className="absolute left-2.5 top-2.5 text-slate-400"><Icon name="Github" size={14} /></span>
+                                                    <input type="text" name="github" value={config.github} onChange={handleConfigChange} placeholder="GitHub URL" className="border rounded-md pl-8 pr-3 py-2 text-xs w-full"/>
+                                                </div>
+                                                <div className="relative">
+                                                    <span className="absolute left-2.5 top-2.5 text-slate-400"><Icon name="Twitter" size={14} /></span>
+                                                    <input type="text" name="twitter" value={config.twitter} onChange={handleConfigChange} placeholder="X / Twitter URL" className="border rounded-md pl-8 pr-3 py-2 text-xs w-full"/>
                                                 </div>
                                             </div>
-                                        )}
-                                    </div>
-                                </label>
-                            </div>
-                        </section>
 
-                        {/* Global Settings */}
-                        <section className="flex items-center gap-4">
-                            <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
-                                <input type="checkbox" checked={config.dark_mode} onChange={e => setConfig(p => ({...p, dark_mode: e.target.checked}))} className="rounded border-slate-300"/>
-                                Enable Dark Mode
-                            </label>
-                        </section>
-                    </>
-                )}
-
-                {activeTab === 'files' && (
-                    <div className="bg-white p-8 rounded-xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center text-center">
-                        <div className="bg-blue-50 p-4 rounded-full mb-4 text-blue-600"><Folder size={32} /></div>
-                        <h3 className="text-lg font-bold text-slate-900 mb-2">Select Image Source</h3>
-                        <p className="text-slate-500 text-sm mb-6 max-w-sm">
-                            {config.output.embedImages 
-                                ? "Images will be compressed and embedded directly into the HTML file."
-                                : "The generated HTML must be saved inside this folder to work."}
-                        </p>
-                        <button onClick={() => dirInputRef.current?.click()} className="px-6 py-2 bg-slate-900 text-white rounded-lg text-sm font-bold hover:bg-slate-800">Browse Folder</button>
-                        {/* @ts-ignore */}
-                        <input ref={dirInputRef} type="file" webkitdirectory="" directory="" multiple onChange={handleFolderSelect} className="hidden" />
-                        
-                        {files.length > 0 && (
-                            <div className="mt-8 w-full border rounded-lg overflow-hidden text-left">
-                                <div className="bg-slate-50 px-4 py-2 border-b text-xs font-semibold text-slate-500">Found {files.length} images</div>
-                                <div className="max-h-64 overflow-y-auto p-2 space-y-1">
-                                    {files.map((f, i) => (
-                                        <div key={i} className="flex justify-between text-xs px-2 py-1 hover:bg-slate-50 rounded">
-                                            <span className="truncate">{f.name}</span>
-                                            <span className="text-slate-400 mono">{(f.size/1024).toFixed(0)}KB</span>
+                                            <div className="md:col-span-2 flex items-center gap-4 border-t pt-4">
+                                                <label className="flex items-center gap-2 text-sm font-medium text-slate-600 cursor-pointer hover:text-slate-900">
+                                                    <Icon name="Upload" size={16} /> {logo ? 'Change Logo' : 'Upload Logo'}
+                                                    <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                                                </label>
+                                                {logo && <img src={logo} className="h-8 w-8 rounded object-cover border" alt="logo prev"/>}
+                                            </div>
                                         </div>
-                                    ))}
+                                    </section>
+
+                                    {/* Design System */}
+                                    <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6">
+                                        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2"><Icon name="Palette" size={14} /> Design System</h3>
+                                        
+                                        {/* Layouts */}
+                                        <div>
+                                            <label className="text-xs font-semibold text-slate-500 mb-3 block">Gallery Structure</label>
+                                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                                                <button onClick={() => setConfig(p => ({...p, layout: 'masonry'}))} className={`p-3 rounded-lg border text-left hover:border-blue-400 transition-all ${config.layout === 'masonry' ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-slate-200'}`}>
+                                                    <div className="flex gap-1 mb-2 opacity-50"><div className="w-1.5 h-4 bg-current rounded-sm"/><div className="w-1.5 h-6 bg-current rounded-sm mt-2"/><div className="w-1.5 h-3 bg-current rounded-sm"/></div>
+                                                    <div className="text-xs font-semibold">Masonry</div>
+                                                </button>
+                                                <button onClick={() => setConfig(p => ({...p, layout: 'grid'}))} className={`p-3 rounded-lg border text-left hover:border-blue-400 transition-all ${config.layout === 'grid' ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-slate-200'}`}>
+                                                    <div className="grid grid-cols-2 gap-1 mb-2 opacity-50 w-6"><div className="h-2.5 bg-current rounded-sm"/><div className="h-2.5 bg-current rounded-sm"/><div className="h-2.5 bg-current rounded-sm"/><div className="h-2.5 bg-current rounded-sm"/></div>
+                                                    <div className="text-xs font-semibold">Grid</div>
+                                                </button>
+                                                <button onClick={() => setConfig(p => ({...p, layout: 'single'}))} className={`p-3 rounded-lg border text-left hover:border-blue-400 transition-all ${config.layout === 'single' ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-slate-200'}`}>
+                                                    <div className="flex flex-col gap-1 mb-2 opacity-50 w-6"><div className="h-2.5 bg-current rounded-sm w-full"/><div className="h-2.5 bg-current rounded-sm w-full"/></div>
+                                                    <div className="text-xs font-semibold">Journal</div>
+                                                </button>
+                                                <button onClick={() => setConfig(p => ({...p, layout: 'filmstrip'}))} className={`p-3 rounded-lg border text-left hover:border-blue-400 transition-all ${config.layout === 'filmstrip' ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-slate-200'}`}>
+                                                    <div className="flex gap-1 mb-2 opacity-50 overflow-hidden w-6"><div className="h-5 w-4 bg-current rounded-sm flex-shrink-0"/><div className="h-5 w-4 bg-current rounded-sm flex-shrink-0"/></div>
+                                                    <div className="text-xs font-semibold">Filmstrip</div>
+                                                </button>
+                                                <button onClick={() => setConfig(p => ({...p, layout: 'dual'}))} className={`p-3 rounded-lg border text-left hover:border-blue-400 transition-all ${config.layout === 'dual' ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-slate-200'}`}>
+                                                    <div className="flex gap-1 mb-2 opacity-50 w-6"><div className="h-5 w-full bg-current rounded-sm"/><div className="h-5 w-full bg-current rounded-sm"/></div>
+                                                    <div className="text-xs font-semibold">Dual</div>
+                                                </button>
+                                            </div>
+                                            {config.layout === 'grid' && (
+                                                <label className="mt-2 flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={config.gridFit} onChange={e => setConfig(p => ({...p, gridFit: e.target.checked}))}/> Fit images inside squares (pad with color)</label>
+                                            )}
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            {/* Typography */}
+                                            <div>
+                                                <label className="text-xs font-semibold text-slate-500 mb-2 block">Typography</label>
+                                                <select name="font" value={config.font} onChange={handleConfigChange} className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm">
+                                                    <option value="sans">Modern Sans (Inter)</option>
+                                                    <option value="humanist">Humanist (Lato)</option>
+                                                    <option value="geometric">Geometric (Futura)</option>
+                                                    <option value="system">System UI (Apple/Segoe)</option>
+                                                    <option value="wide">Wide Sans (Verdana)</option>
+                                                    <option value="serif">Classic Serif (Georgia)</option>
+                                                    <option value="editorial">Editorial (Playfair)</option>
+                                                    <option value="oldstyle">Old Style (Garamond)</option>
+                                                    <option value="slab">Slab Serif (Rockwell)</option>
+                                                    <option value="mono">Code (Inconsolata)</option>
+                                                    <option value="screenplay">Screenplay (Courier)</option>
+                                                </select>
+                                            </div>
+
+                                            {/* Color Palette */}
+                                            <div>
+                                                <label className="text-xs font-semibold text-slate-500 mb-2 block">Accent Colour</label>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {['#2563eb', '#0f172a', '#dc2626', '#ea580c', '#16a34a', '#0891b2', '#7c3aed', '#db2777'].map(c => (
+                                                        <button key={c} onClick={() => setConfig(p => ({...p, accentColor: c}))} className={`w-6 h-6 rounded-full border ${config.accentColor === c ? 'ring-2 ring-offset-2 ring-slate-400' : 'border-transparent'}`} style={{ backgroundColor: c }} />
+                                                    ))}
+                                                    <input type="color" value={config.accentColor} onChange={e => setConfig(p => ({...p, accentColor: e.target.value}))} className="w-6 h-6 rounded-full p-0 border-0 cursor-pointer"/>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </section>
+
+                                    {/* Filters & Processing */}
+                                    <section className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6">
+                                        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2"><Icon name="Sliders" size={14} /> Post-Processing</h3>
+                                        
+                                        {/* Filter Presets */}
+                                        <div>
+                                            <label className="text-xs font-semibold text-slate-500 mb-3 block">Image Filters</label>
+                                            <div className="flex gap-2 overflow-x-auto pb-2 hide-scrollbar">
+                                                {['none', 'grayscale', 'sepia', 'vivid', 'matte', 'vintage', 'cinematic'].map(f => (
+                                                    <button key={f} onClick={() => setConfig(p => ({...p, filter: f}))} 
+                                                        className={`px-3 py-1.5 rounded-full text-xs font-medium capitalize border transition-all ${config.filter === f ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                                                        {f}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <label className="mt-3 flex items-center gap-2 text-xs text-slate-600 cursor-pointer w-fit">
+                                                <input type="checkbox" checked={config.vignette} onChange={e => setConfig(p => ({...p, vignette: e.target.checked}))} className="rounded border-slate-300"/>
+                                                Add Vignette Effect
+                                            </label>
+                                        </div>
+
+                                        {/* Export Settings */}
+                                        <div className="pt-4 border-t border-slate-100">
+                                            <label className="flex items-start gap-3 p-3 rounded-lg border bg-slate-50 cursor-pointer">
+                                                <input type="checkbox" checked={config.output.embedImages} onChange={e => updateOutput('embedImages', e.target.checked)} className="mt-1"/>
+                                                <div>
+                                                    <span className="text-sm font-bold text-slate-900 block flex items-center gap-2"><Icon name="FileArchive" size={14} /> Portable Mode (Embed Images)</span>
+                                                    <span className="text-xs text-slate-500 block">Compresses images into the HTML file. Easier to share, but lower quality.</span>
+                                                    
+                                                    {config.output.embedImages && (
+                                                        <div className="mt-3 flex gap-4">
+                                                            <div className="flex-1">
+                                                                <span className="text-xs font-semibold block mb-1">Max Width</span>
+                                                                <select value={config.output.maxDimension} onChange={e => updateOutput('maxDimension', Number(e.target.value))} className="w-full text-xs border rounded px-2 py-1">
+                                                                    <option value="800">800px (Email Safe)</option>
+                                                                    <option value="1200">1200px (HD)</option>
+                                                                    <option value="1920">1920px (Full HD)</option>
+                                                                </select>
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <span className="text-xs font-semibold block mb-1">Quality</span>
+                                                                <select value={config.output.quality} onChange={e => updateOutput('quality', Number(e.target.value))} className="w-full text-xs border rounded px-2 py-1">
+                                                                    <option value="0.6">Low (60%)</option>
+                                                                    <option value="0.8">High (80%)</option>
+                                                                    <option value="1.0">Original (100%)</option>
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </label>
+                                        </div>
+                                    </section>
+
+                                    {/* Global Settings */}
+                                    <section className="flex items-center gap-4">
+                                        <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                                            <input type="checkbox" checked={config.dark_mode} onChange={e => setConfig(p => ({...p, dark_mode: e.target.checked}))} className="rounded border-slate-300"/>
+                                            Enable Dark Mode
+                                        </label>
+                                    </section>
+                                </React.Fragment>
+                            )}
+
+                            {activeTab === 'files' && (
+                                <div className="bg-white p-8 rounded-xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center text-center">
+                                    <div className="bg-blue-50 p-4 rounded-full mb-4 text-blue-600"><Icon name="Folder" size={32} /></div>
+                                    <h3 className="text-lg font-bold text-slate-900 mb-2">Select Image Source</h3>
+                                    <p className="text-slate-500 text-sm mb-6 max-w-sm">
+                                        {config.output.embedImages 
+                                            ? "Images will be compressed and embedded directly into the HTML file."
+                                            : "The generated HTML must be saved inside this folder to work."}
+                                    </p>
+                                    <button onClick={() => dirInputRef.current?.click()} className="px-6 py-2 bg-slate-900 text-white rounded-lg text-sm font-bold hover:bg-slate-800">Browse Folder</button>
+                                    <input ref={dirInputRef} type="file" webkitdirectory="" directory="" multiple onChange={handleFolderSelect} className="hidden" />
+                                    
+                                    {files.length > 0 && (
+                                        <div className="mt-8 w-full border rounded-lg overflow-hidden text-left">
+                                            <div className="bg-slate-50 px-4 py-2 border-b text-xs font-semibold text-slate-500">Found {files.length} images</div>
+                                            <div className="max-h-64 overflow-y-auto p-2 space-y-1">
+                                                {files.map((f, i) => (
+                                                    <div key={i} className="flex justify-between text-xs px-2 py-1 hover:bg-slate-50 rounded">
+                                                        <span className="truncate">{f.name}</span>
+                                                        <span className="text-slate-400 mono">{(f.size/1024).toFixed(0)}KB</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
-                )}
-            </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+                  </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
