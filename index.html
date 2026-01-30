@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Portfolio Architect - V4.9</title>
+    <title>Portfolio Architect - V5.0</title>
     
     <!-- Core Libraries (React + Tailwind) -->
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -101,6 +101,7 @@
             // Initialize Config State from LocalStorage with Fallback
             const [config, setConfig] = useState(() => {
                 const saved = localStorage.getItem('portfolio_architect_v4_config');
+                // Merge default with saved to ensure new keys (like stripRoot, folderAliases) are present
                 return saved ? { ...DEFAULT_CONFIG, ...JSON.parse(saved) } : DEFAULT_CONFIG;
             });
             
@@ -500,6 +501,39 @@
                     `;
                 }
 
+                // Refactor: Build gallery HTML separately to avoid deep nesting issues
+                const galleryContent = Object.entries(contentStructure).map(([folderName, items]) => {
+                    const displayTitle = currentConfig.folderAliases && currentConfig.folderAliases[folderName] 
+                        ? currentConfig.folderAliases[folderName] 
+                        : folderName.replace(/_/g, ' ');
+                    
+                    const itemsHTML = items.map(file => {
+                        const isVideo = file.type === 'video';
+                        const renderVideo = isVideo && !currentConfig.output.embedImages;
+                        
+                        // Careful with nested template literals for the onclick
+                        // Use a safe string for the onclick handler
+                        const clickHandler = renderVideo ? '' : `openLightbox('${file.src}', ${isVideo})`;
+                        
+                        return `
+                        <div class="gallery-item" onclick="${clickHandler}">
+                            ${renderVideo 
+                                ? `<video src="${file.src}" controls preload="metadata"></video>` 
+                                : `<img src="${file.src}" loading="lazy" alt="${file.name}">`
+                            }
+                            ${isVideo ? `<div class="video-badge">▶ Video</div>` : ''}
+                        </div>
+                        `;
+                    }).join('');
+
+                    return `
+                    ${currentConfig.groupByFolder ? `<h3 class="section-title">${displayTitle}</h3>` : ''}
+                    <div class="gallery-container">
+                        ${itemsHTML}
+                    </div>
+                    `;
+                }).join('');
+
                 const htmlContent = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -562,34 +596,11 @@
             </div>
         </header>
 
-        ${Object.entries(contentStructure).map(([folderName, items]) => {
-            // Apply alias if exists
-            const displayTitle = currentConfig.folderAliases && currentConfig.folderAliases[folderName] 
-                ? currentConfig.folderAliases[folderName] 
-                : folderName.replace(/_/g, ' ');
-            
-            return `
-            ${currentConfig.groupByFolder ? `<h3 class="section-title">${displayTitle}</h3>` : ''}
-            <div class="gallery-container">
-                ${items.map(file => {
-                    const isVideo = file.type === 'video';
-                    const renderVideo = isVideo && !currentConfig.output.embedImages;
-                    return `
-                    <div class="gallery-item" onclick="${renderVideo ? '' : `openLightbox('${file.src}', ${isVideo})`}">
-                        ${renderVideo 
-                            ? `<video src="${file.src}" controls preload="metadata"></video>` 
-                            : `<img src="${file.src}" loading="lazy" alt="${file.name}">`
-                        }
-                        ${isVideo ? `<div class="video-badge">▶ Video</div>` : ''}
-                    </div>
-                    `
-                }).join('')}
-            </div>
-        `}).join('')}
+        ${galleryContent}
 
         <footer>
             <p class="copyright">&copy; ${new Date().getFullYear()} ${currentConfig.title}</p>
-            <p class="credit">Generated with Portfolio Architect https://mfo78.github.io/PortfolioArchitect/</p>
+            <p class="credit">Generated with <a href="https://mfo78.github.io/PortfolioArchitect/" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:underline;">Portfolio Architect</a></p>
         </footer>
     </div>
     
